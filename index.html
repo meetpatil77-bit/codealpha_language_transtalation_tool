@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Language Translator - Premium Web App</title>
+    <!-- Google Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Styled CSS stylesheet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1><i class="fa-solid fa-language"></i> AI Translator Pro</h1>
+            <p>Translate text seamlessly across 20+ languages with Voice assisted translation</p>
+        </div>
+
+        <!-- Main Workspace -->
+        <div class="translator-box">
+            <!-- Input Panel -->
+            <div class="box">
+                <div class="box-header">
+                    <h3><i class="fa-regular fa-pen-to-square"></i> Input text</h3>
+                    <div class="select-wrapper">
+                        <select id="sourceLang" onchange="translateText()">
+                            {% for lang, code in languages.items() %}
+                            <option value="{{ code }}" {% if code=='auto' %}selected{% endif %}>{{ lang }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="textarea-wrapper">
+                    <textarea id="inputText" placeholder="Type or paste your text here..." maxlength="5000"></textarea>
+                    <div class="char-counter" id="charCounter">0 / 5000</div>
+                </div>
+                <div class="box-footer">
+                    <div class="actions-row">
+                        <button class="action-btn" id="voiceInputBtn" title="Voice Input (Speech-to-Text)"
+                            onclick="startVoiceInput()">
+                            <i class="fa-solid fa-microphone"></i>
+                        </button>
+                        <button class="action-btn" title="Speak Input (Text-to-Speech)"
+                            onclick="speakText('inputText', 'sourceLang')">
+                            <i class="fa-solid fa-volume-high"></i>
+                        </button>
+                        <button class="action-btn" title="Copy Input to Clipboard" onclick="copyText('inputText')">
+                            <i class="fa-regular fa-copy"></i>
+                        </button>
+                        <button class="action-btn" title="Clear Input Text" onclick="clearInputText()">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Middle Swap Button -->
+            <div class="swap-container">
+                <button class="swap-btn" title="Swap Languages" onclick="swapLanguages()">
+                    <i class="fa-solid fa-arrow-right-arrow-left"></i>
+                </button>
+            </div>
+
+            <!-- Output Panel -->
+            <div class="box">
+                <div class="box-header">
+                    <h3><i class="fa-solid fa-language"></i> Translation</h3>
+                    <div class="select-wrapper">
+                        <select id="targetLang" onchange="translateText()">
+                            {% for lang, code in languages.items() %}
+                            {% if code != 'auto' %}
+                            <option value="{{ code }}" {% if code=='hi' %}selected{% endif %}>{{ lang }}</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="textarea-wrapper" style="position: relative;">
+                    <div class="shimmer" id="outputShimmer"></div>
+                    <textarea id="outputText" placeholder="Translation will appear here..." readonly></textarea>
+                </div>
+                <div class="box-footer">
+                    <div class="actions-row">
+                        <button class="action-btn" title="Speak Translation"
+                            onclick="speakText('outputText', 'targetLang')">
+                            <i class="fa-solid fa-volume-high"></i>
+                        </button>
+                        <button class="action-btn" title="Copy Translation to Clipboard"
+                            onclick="copyText('outputText')">
+                            <i class="fa-regular fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Manual Translate Trigger -->
+        <div class="main-action-wrapper">
+            <button class="translate-btn" onclick="translateText()">
+                <span id="btnText">Translate</span>
+                <div class="spinner" id="btnSpinner"></div>
+                <i class="fa-solid fa-arrow-right" id="btnIcon"></i>
+            </button>
+        </div>
+
+        <!-- Bottom Highlights -->
+        <div class="features">
+            <div class="feature">
+                <i class="fa-solid fa-bolt"></i>
+                <h4>Instant Translate</h4>
+                <p>Type smoothly and let the app translate text in real-time with zero lag.</p>
+            </div>
+            <div class="feature">
+                <i class="fa-solid fa-microphone-lines"></i>
+                <h4>Voice Tools</h4>
+                <p>Utilize speech synthesis to read text or speech recognition for voice input.</p>
+            </div>
+            <div class="feature">
+                <i class="fa-solid fa-shield-halved"></i>
+                <h4>Encrypted & Secure</h4>
+                <p>Rest assured knowing all translations are securely and safely processed.</p>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            Made with Flask & Deep Translator
+        </div>
+    </div>
+
+    <!-- Container for toast notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Frontend Application Logic -->
+    <script>
+        let isTranslating = false;
+        let recognition;
+        let isListening = false;
+        let debounceTimeout;
+
+        // Dynamic Toast Notifications
+        function showToast(message, type = 'info') {
+            const container = document.getElementById("toastContainer");
+            const toast = document.createElement("div");
+            toast.className = `toast ${type}`;
+
+            let icon = 'fa-info-circle';
+            if (type === 'success') icon = 'fa-circle-check';
+            if (type === 'error') icon = 'fa-circle-exclamation';
+
+            toast.innerHTML = `
+        <i class="fa-solid ${icon}"></i>
+        <span>${message}</span>
+    `;
+
+            container.appendChild(toast);
+
+            // Trigger reflow to run animations
+            toast.offsetHeight;
+            toast.classList.add("show");
+
+            setTimeout(() => {
+                toast.classList.remove("show");
+                setTimeout(() => toast.remove(), 400);
+            }, 3000);
+        }
+
+        // Translate Action
+        async function translateText() {
+            let text = document.getElementById("inputText").value;
+            let source = document.getElementById("sourceLang").value;
+            let target = document.getElementById("targetLang").value;
+
+            if (text.trim() === "") {
+                document.getElementById("outputText").value = "";
+                return;
+            }
+
+            if (isTranslating) return;
+            setLoading(true);
+
+            try {
+                const response = await fetch("/translate", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        source: source,
+                        target: target
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error("Server error");
+                }
+
+                const data = await response.json();
+                document.getElementById("outputText").value = data.translated_text;
+            } catch (err) {
+                console.error(err);
+                showToast("Translation error. Please check connection.", "error");
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        // Toggle Loading Overlay & Spinner UI
+        function setLoading(loading) {
+            isTranslating = loading;
+            const btnText = document.getElementById("btnText");
+            const spinner = document.getElementById("btnSpinner");
+            const icon = document.getElementById("btnIcon");
+            const shimmer = document.getElementById("outputShimmer");
+
+            if (loading) {
+                btnText.textContent = "Translating...";
+                spinner.style.display = "block";
+                icon.style.display = "none";
+                shimmer.style.display = "block";
+            } else {
+                btnText.textContent = "Translate";
+                spinner.style.display = "none";
+                icon.style.display = "block";
+                shimmer.style.display = "none";
+            }
+        }
+
+        // Debounced Auto Translation on Input Type
+        document.getElementById("inputText").addEventListener("input", (e) => {
+            const charCount = e.target.value.length;
+            document.getElementById("charCounter").textContent = `${charCount} / 5000`;
+
+            clearTimeout(debounceTimeout);
+
+            if (e.target.value.trim() === "") {
+                document.getElementById("outputText").value = "";
+                return;
+            }
+
+            debounceTimeout = setTimeout(() => {
+                translateText();
+            }, 700); // 700ms debounce
+        });
+
+        // Copy Text to Clipboard
+        async function copyText(textareaId) {
+            const text = document.getElementById(textareaId).value;
+            if (text.trim() === "") {
+                showToast("Nothing to copy!", "error");
+                return;
+            }
+
+            try {
+                await navigator.clipboard.writeText(text);
+                showToast("Copied to clipboard!", "success");
+            } catch (err) {
+                showToast("Failed to copy. Please copy manually.", "error");
+            }
+        }
+
+        // Clear Input Text Box
+        function clearInputText() {
+            document.getElementById("inputText").value = "";
+            document.getElementById("outputText").value = "";
+            document.getElementById("charCounter").textContent = "0 / 5000";
+            showToast("Cleared input text", "success");
+        }
+
+        // Swap Source and Target Languages & Text Content
+        function swapLanguages() {
+            const sourceSelect = document.getElementById("sourceLang");
+            const targetSelect = document.getElementById("targetLang");
+
+            const sourceVal = sourceSelect.value;
+            const targetVal = targetSelect.value;
+
+            if (sourceVal === "auto") {
+                // Since target cannot be 'auto', set source to target select and target to English
+                sourceSelect.value = targetVal;
+                targetSelect.value = "en";
+            } else {
+                sourceSelect.value = targetVal;
+                targetSelect.value = sourceVal;
+            }
+
+            const inputTxt = document.getElementById("inputText").value;
+            const outputTxt = document.getElementById("outputText").value;
+
+            document.getElementById("inputText").value = outputTxt;
+            document.getElementById("outputText").value = inputTxt;
+            document.getElementById("charCounter").textContent = `${outputTxt.length} / 5000`;
+
+            showToast("Languages swapped!", "success");
+
+            if (outputTxt.trim() !== "") {
+                translateText();
+            }
+        }
+
+        // Read Text Aloud (Text-to-Speech)
+        function speakText(textareaId, langSelectId) {
+            const text = document.getElementById(textareaId).value;
+            const langCode = document.getElementById(langSelectId).value;
+
+            if (text.trim() === "") {
+                showToast("Enter some text first!", "error");
+                return;
+            }
+
+            if (!('speechSynthesis' in window)) {
+                showToast("Speech Synthesis is not supported in this browser.", "error");
+                return;
+            }
+
+            window.speechSynthesis.cancel(); // Cancel current speaker
+
+            const utterance = new SpeechSynthesisUtterance(text);
+
+            // Set speech language code if not set to Auto Detect
+            if (langCode !== "auto") {
+                utterance.lang = langCode;
+            }
+
+            utterance.onend = () => {
+                showToast("Speech finished", "success");
+            };
+
+            utterance.onerror = (e) => {
+                console.error(e);
+                showToast("Speech error occurred", "error");
+            };
+
+            showToast("Speaking text...", "success");
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // Voice Typing (Speech-to-Text)
+        function startVoiceInput() {
+            if (isListening) {
+                stopVoiceInput();
+                return;
+            }
+
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                showToast("Your browser doesn't support Voice typing. Use Chrome/Edge.", "error");
+                return;
+            }
+
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+
+            const sourceLang = document.getElementById("sourceLang").value;
+            if (sourceLang !== "auto") {
+                recognition.lang = sourceLang;
+            }
+
+            const voiceBtn = document.getElementById("voiceInputBtn");
+
+            recognition.onstart = () => {
+                isListening = true;
+                voiceBtn.classList.add("active");
+                showToast("Listening... Speak clearly.", "success");
+            };
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                const inputText = document.getElementById("inputText");
+
+                if (inputText.value.trim() === "") {
+                    inputText.value = transcript;
+                } else {
+                    inputText.value += " " + transcript;
+                }
+
+                // Dispatch event to count chars and translate
+                inputText.dispatchEvent(new Event('input'));
+            };
+
+            recognition.onerror = (e) => {
+                console.error(e);
+                showToast("Speech recognition error: " + e.error, "error");
+                stopVoiceInput();
+            };
+
+            recognition.onend = () => {
+                stopVoiceInput();
+            };
+
+            recognition.start();
+        }
+
+        // Stop Speech Recognition
+        function stopVoiceInput() {
+            isListening = false;
+            const voiceBtn = document.getElementById("voiceInputBtn");
+            if (voiceBtn) {
+                voiceBtn.classList.remove("active");
+            }
+            if (recognition) {
+                recognition.stop();
+            }
+        }
+    </script>
+</body>
+
+</html>
